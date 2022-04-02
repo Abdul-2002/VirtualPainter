@@ -1,110 +1,178 @@
-import cv2
-import time
-import handtrackingmodule as htm
+import mediapipe as mp		#Mediapipe is a cross-platform library developed by Google that provides amazing ready-to-use ML solutions for computer vision tasks
+import cv2					#OpenCV library in python is a computer vision library that is widely used for image analysis, image processing, detection, recognition, etc
 import numpy as np
-import os
+import time
 
-overlayList=[]#list to store all the images
+#contants
+ml = 150					# is the margin
+max_x, max_y = 250+ml, 50	# margine up till where we an draw in the axis 
+curr_tool = "select tool"	# it will save the curren toole
+time_init = True			# initial time
+rad = 40					# raidus of the circule		
+var_inits = False			# initial value of varable 
+thick = 4					# to give the thickness
+prevx, prevy = 0,0			# Origin
 
-brushThickness = 25
-eraserThickness = 100
-drawColor=(255,0,255)#setting purple color
+#get tools function
+def getTool(x):
+	if x < 50 + ml:
+		return "line"
 
-xp, yp = 0, 0
-imgCanvas = np.zeros((720, 1280, 3), np.uint8)# defining canvas
+	elif x<100 + ml:
+		return "rectangle"
 
-#images in header folder
-folderPath="Header"
-myList=os.listdir(folderPath)#getting all the images used in code
-#print(myList)
-for imPath in myList:#reading all the images from the folder
-    image=cv2.imread(f'{folderPath}/{imPath}')
-    overlayList.append(image)#inserting images one by one in the overlayList
-header=overlayList[0]#storing 1st image 
-cap=cv2.VideoCapture(0)
-cap.set(3,1280)#width
-cap.set(4,720)#height
+	elif x < 150 + ml:
+		return"draw"
 
-detector = htm.handDetector(detectionCon=0.50,maxHands=1)#making object
+	elif x<200 + ml:
+		return "circle"
 
+	else:
+		return "erase"
+
+def index_raised(yi, y9):
+	if (y9 - yi) > 40:
+		return True
+
+	return False
+
+
+# hand tracking modules
+hands = mp.solutions.hands
+hand_landmark = hands.Hands(min_detection_confidence=0.6, min_tracking_confidence=0.6, max_num_hands=1)
+draw = mp.solutions.drawing_utils
+
+
+# drawing tools
+tools = cv2.imread("tools.png")
+tools = tools.astype('uint8')
+
+# improving the pixels
+mask = np.ones((480, 640))*255 
+mask = mask.astype('uint8')		
+
+#Staring the video and takinf the RGBs
+cap = cv2.VideoCapture(0)
 while True:
+	_, frm = cap.read()
+	frm = cv2.flip(frm, 1)
 
-    # 1. Import image
-    success, img = cap.read()
-    img=cv2.flip(img,1)#for neglecting mirror inversion
-    
-    # 2. Find Hand Landmarks
-    img = detector.findHands(img)#using functions fo connecting landmarks
-    lmList,bbox = detector.findPosition(img, draw=False)#using function to find specific landmark position,draw false means no circles on landmarks
-    
-    if len(lmList)!=0:
-        #print(lmList)
-        x1, y1 = lmList[8][1],lmList[8][2]# tip of index finger
-        x2, y2 = lmList[12][1],lmList[12][2]# tip of middle finger
-        
-        # 3. Check which fingers are up
-        fingers = detector.fingersUp()
-        #print(fingers)
+	rgb = cv2.cvtColor(frm, cv2.COLOR_BGR2RGB)
 
-        # 4. If Selection Mode - Two finger are up
-        if fingers[1] and fingers[2]:
-            xp,yp=0,0
-            #print("Selection Mode")
-            #checking for click
-            if y1 < 125:
-                if 250 < x1 < 450:#if i m clicking at purple brush
-                    header = overlayList[0]
-                    drawColor = (255, 0, 255)
-                elif 550 < x1 < 750:#if i m clicking at blue brush
-                    header = overlayList[1]
-                    drawColor = (255, 0, 0)
-                elif 800 < x1 < 950:#if i m clicking at green brush
-                    header = overlayList[2]
-                    drawColor = (0, 255, 0)
-                elif 1050 < x1 < 1200:#if i m clicking at eraser
-                    header = overlayList[3]
-                    drawColor = (0, 0, 0)
-            cv2.rectangle(img, (x1, y1 - 25), (x2, y2 + 25), drawColor, cv2.FILLED)#selection mode is represented as rectangle
+	op = hand_landmark.process(rgb)
 
+#checking for the fingure up which fingure is up
 
-        # 5. If Drawing Mode - Index finger is up
-        if fingers[1] and fingers[2] == False:
-            cv2.circle(img, (x1, y1), 15, drawColor, cv2.FILLED)#drawing mode is represented as circle
-            #print("Drawing Mode")
-            if xp == 0 and yp == 0:#initially xp and yp will be at 0,0 so it will draw a line from 0,0 to whichever point our tip is at
-                xp, yp = x1, y1 # so to avoid that we set xp=x1 and yp=y1
-            #till now we are creating our drawing but it gets removed as everytime our frames are updating so we have to define our canvas where we can draw and show also
-            
-            #eraser
-            if drawColor == (0, 0, 0):
-                cv2.line(img, (xp, yp), (x1, y1), drawColor, eraserThickness)
-                cv2.line(imgCanvas, (xp, yp), (x1, y1), drawColor, eraserThickness)
-            else:
-                cv2.line(img, (xp, yp), (x1, y1), drawColor, brushThickness)#gonna draw lines from previous coodinates to new positions 
-                cv2.line(imgCanvas, (xp, yp), (x1, y1), drawColor, brushThickness)
-            xp,yp=x1,y1 # giving values to xp,yp everytime 
-           
-           #merging two windows into one imgcanvas and img
-    
-    # 1 converting img to gray
-    imgGray = cv2.cvtColor(imgCanvas, cv2.COLOR_BGR2GRAY)
-    
-    # 2 converting into binary image and thn inverting
-    _, imgInv = cv2.threshold(imgGray, 50, 255, cv2.THRESH_BINARY_INV)#on canvas all the region in which we drew is black and where it is black it is cosidered as white,it will create a mask
-    
-    imgInv = cv2.cvtColor(imgInv,cv2.COLOR_GRAY2BGR)#converting again to gray bcoz we have to add in a RGB image i.e img
-    
-    #add original img with imgInv ,by doing this we get our drawing only in black color
-    img = cv2.bitwise_and(img,imgInv)
-    
-    #add img and imgcanvas,by doing this we get colors on img
-    img = cv2.bitwise_or(img,imgCanvas)
+	if op.multi_hand_landmarks:
+		for i in op.multi_hand_landmarks:
+			draw.draw_landmarks(frm, i, hands.HAND_CONNECTIONS)
+			x, y = int(i.landmark[8].x*640), int(i.landmark[8].y*480)
+
+			if x < max_x and y < max_y and x > ml:
+				if time_init:
+					ctime = time.time()
+					time_init = False
+				ptime = time.time()
+
+				cv2.circle(frm, (x, y), rad, (0,255,255), 2)
+				rad -= 1
+
+				#checking if the tools are changed or not
+
+				if (ptime - ctime) > 0.8:
+					curr_tool = getTool(x)
+					print("your current tool set to : ", curr_tool)
+					time_init = True
+					rad = 40
+
+			else:
+				time_init = True
+				rad = 40
+
+			# Checking for the selected tools
+			if curr_tool == "draw":
+				xi, yi = int(i.landmark[12].x*640), int(i.landmark[12].y*480)
+				y9  = int(i.landmark[9].y*480)
+
+				if index_raised(yi, y9):
+					cv2.line(mask, (prevx, prevy), (x, y), 0, thick)
+					prevx, prevy = x, y
+
+				else:
+					prevx = x
+					prevy = y
 
 
-    #setting the header image
-    img[0:125,0:1280]=header# on our frame we are setting our JPG image acc to H,W of jpg images
 
-    cv2.imshow("Image", img)
-    #cv2.imshow("Canvas", imgCanvas)
-    #cv2.imshow("Inv", imgInv)
-    cv2.waitKey(1)
+			elif curr_tool == "line":
+				xi, yi = int(i.landmark[12].x*640), int(i.landmark[12].y*480)
+				y9  = int(i.landmark[9].y*480)
+
+				if index_raised(yi, y9):
+					if not(var_inits):
+						xii, yii = x, y
+						var_inits = True
+
+					cv2.line(frm, (xii, yii), (x, y), (50,152,255), thick)
+
+				else:
+					if var_inits:
+						cv2.line(mask, (xii, yii), (x, y), 0, thick)
+						var_inits = False
+
+			elif curr_tool == "rectangle":
+				xi, yi = int(i.landmark[12].x*640), int(i.landmark[12].y*480)
+				y9  = int(i.landmark[9].y*480)
+
+				if index_raised(yi, y9):
+					if not(var_inits):
+						xii, yii = x, y
+						var_inits = True
+
+					cv2.rectangle(frm, (xii, yii), (x, y), (0,255,255), thick)
+
+				else:
+					if var_inits:
+						cv2.rectangle(mask, (xii, yii), (x, y), 0, thick)
+						var_inits = False
+
+			elif curr_tool == "circle":
+				xi, yi = int(i.landmark[12].x*640), int(i.landmark[12].y*480)
+				y9  = int(i.landmark[9].y*480)
+
+				if index_raised(yi, y9):
+					if not(var_inits):
+						xii, yii = x, y
+						var_inits = True
+
+					cv2.circle(frm, (xii, yii), int(((xii-x)**2 + (yii-y)**2)**0.5), (255,255,0), thick)
+
+				else:
+					if var_inits:
+						cv2.circle(mask, (xii, yii), int(((xii-x)**2 + (yii-y)**2)**0.5), (0,255,0), thick)
+						var_inits = False
+
+			elif curr_tool == "erase":
+				xi, yi = int(i.landmark[12].x*640), int(i.landmark[12].y*480)
+				y9  = int(i.landmark[9].y*480)
+
+				if index_raised(yi, y9):
+					cv2.circle(frm, (x, y), 30, (0,0,0), -1)
+					cv2.circle(mask, (x, y), 30, 255, -1)
+
+
+
+	op = cv2.bitwise_and(frm, frm, mask=mask)
+	frm[:, :, 1] = op[:, :, 1]
+	frm[:, :, 2] = op[:, :, 2]
+
+	frm[:max_y, ml:max_x] = cv2.addWeighted(tools, 0.7, frm[:max_y, ml:max_x], 0.3, 0)
+
+	cv2.putText(frm, curr_tool, (270+ml,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
+	cv2.imshow("paint app", frm)
+
+	if cv2.waitKey(1) == 27:
+		cv2.destroyAllWindows()
+		cap.release()
+		break
+ 
